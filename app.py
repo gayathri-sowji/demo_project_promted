@@ -1,66 +1,43 @@
-import streamlit as st
-import cv2
+# TARGET COLUMN: exam_score
+import pandas as pd
 import numpy as np
-from PIL import Image
+from sklearn.preprocessing import StandardScaler
 
-# Page configuration
-st.set_page_config(
-    page_title="Face Identification App",
-    layout="centered"
-)
+df = pd.read_csv("students.csv")
 
-st.title("🧑 Face Identification using Streamlit")
-st.write("Upload an image and the app will detect human faces.")
+# Drop irrelevant
+df = df.drop(columns=["student_id"])
 
-# Load Haar Cascade for face detection
-face_cascade = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-)
+# Basic cleaning
+for c in ['gender','course','internet_access',
+          'sleep_quality','study_method',
+          'facility_rating','exam_difficulty']:
+    df[c] = df[c].str.lower().str.strip()
 
-# File uploader
-uploaded_file = st.file_uploader(
-    "Upload an image",
-    type=["jpg", "jpeg", "png"]
-)
+# Outlier clipping using IQR
+def clip_iqr(col):
+    q1, q3 = df[col].quantile([0.25,0.75])
+    iqr = q3-q1
+    df[col] = np.clip(df[col], q1-1.5*iqr, q3+1.5*iqr)
 
-if uploaded_file is not None:
-    # Read and display image
-    image = Image.open(uploaded_file)
-    st.subheader("📷 Uploaded Image Preview")
-    st.image(image, use_column_width=True)
+for col in ['study_hours','class_attendance','sleep_hours']:
+    clip_iqr(col)
 
-    # Convert image to OpenCV format
-    img_array = np.array(image)
-    gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+# Ordinal mapping
+ordinal_maps = {
+ 'sleep_quality': {'poor':1,'average':2,'good':3},
+ 'facility_rating': {'low':1,'medium':2,'high':3},
+ 'exam_difficulty': {'easy':1,'moderate':2,'hard':3}
+}
 
-    # Face detection parameters (user control)
-    st.subheader("⚙️ Detection Parameters")
-    scaleFactor = st.slider("Scale Factor", 1.05, 1.5, 1.1, 0.01)
-    minNeighbors = st.slider("Min Neighbors", 3, 10, 5)
+for k,v in ordinal_maps.items():
+    df[k+"_enc"] = df[k].map(v)
 
-    faces = face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=scaleFactor,
-        minNeighbors=minNeighbors
-    )
+# Scaling numerical
+scaler = StandardScaler()
+df[['age','study_hours','class_attendance','sleep_hours']] = \
+ scaler.fit_transform(df[['age','study_hours','class_attendance','sleep_hours']])
 
-    # Draw rectangles and labels
-    for (x, y, w, h) in faces:
-        cv2.rectangle(img_array, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(
-            img_array,
-            "Human face identified",
-            (x, y - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
-
-    # Show result
-    st.subheader("✅ Detection Result")
-    if len(faces) > 0:
-        st.success(f"{len(faces)} face(s) detected")
-        st.image(img_array, use_column_width=True)
-    else:
-        st.warning("No human face detected in the image.")
+# Export
+df.to_csv("cleaned_students.csv", index=False)
+print("Exported cleaned_students.csv")
